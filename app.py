@@ -2,7 +2,7 @@
 Customs@SG – Traveller Portal
 Personal Information Page Prototype
 
-Two tabs:
+Two variants (radio — not tabs, so widget state survives on Streamlit Cloud):
   1. Baseline Form
   2. Improved Form with MyInfo Autofill
 
@@ -297,6 +297,35 @@ def ensure_myinfo_text_widget(prefix: str, field: str, stamp: int):
         s[wk] = "" if v is None else str(v)
 
 
+def repair_myinfo_widget_keys(prefix: str):
+    """
+    Streamlit deletes session_state for a widget if that widget is not executed in a run
+    (e.g. lazy tabs on Cloud). Logical fields (sp_name, …) still hold MyInfo data — repopulate
+    the versioned widget keys so text_input shows them again.
+    """
+    s = st.session_state
+    if not s.get(f"{prefix}_singpass_used"):
+        return
+    mis = int(s.get(f"{prefix}_myinfo_stamp") or 0)
+    if mis < 1:
+        return
+    pairs = [
+        ("nric", True),
+        ("name", False),
+        ("email", False),
+        ("phone", False),
+    ]
+    for field, upper in pairs:
+        lk = f"{prefix}_{field}"
+        wk = f"{prefix}_{field}_mi{mis}"
+        lv = s.get(lk)
+        if lv is None or str(lv).strip() == "":
+            continue
+        cur = s.get(wk, "")
+        if wk not in s or str(cur).strip() == "":
+            s[wk] = str(lv).strip().upper() if upper else str(lv)
+
+
 def reset_doc_dependent_fields(prefix: str):
     """Clear fields that depend on travel document type when the type changes."""
     s = st.session_state
@@ -369,6 +398,8 @@ def render_form(prefix: str, with_singpass: bool = False):
     """
     _init_state(prefix)
     s = st.session_state
+    if with_singpass:
+        repair_myinfo_widget_keys(prefix)
 
     def record_interaction():
         # Baseline form only: capture time from first click/input to "Next".
@@ -809,11 +840,22 @@ st.caption("Singapore Customs | Traveller Declaration Portal  |  *Prototype – 
 st.markdown("<hr style='margin:8px 0 16px'>", unsafe_allow_html=True)
 progress_bar(step=1, total=5)
 
-# ── Tabs ───────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["📋  Baseline Form", "⚡  Improved Form with MyInfo Autofill"])
+# ── Form variant (radio, not tabs): only one form runs per rerun. Streamlit deletes widget
+#    session_state for widgets that are not instantiated; lazy tabs on Cloud often skip the
+#    hidden tab, wiping sp_* keys while sp_name / sp_nric still hold MyInfo data — fields stayed empty.
+FORM_LABEL_BASE = "📋  Baseline Form"
+FORM_LABEL_IMPROVED = "⚡  Improved Form with MyInfo Autofill"
+st.markdown("##### Prototype variant")
+variant = st.radio(
+    "Prototype variant",
+    [FORM_LABEL_BASE, FORM_LABEL_IMPROVED],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="_form_variant_pick",
+)
+st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-with tab1:
+if variant == FORM_LABEL_BASE:
     render_form(prefix="base", with_singpass=False)
-
-with tab2:
+else:
     render_form(prefix="sp", with_singpass=True)
