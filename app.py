@@ -276,6 +276,15 @@ def progress_bar(step=1, total=5):
 # Pill-style segmented button (simulated with columns)
 # ──────────────────────────────────────────────
 
+def bind_text_widget(prefix: str, logical_suffix: str, widget_suffix: str):
+    """Init widget session key from logical field once. Avoids value= + key (breaks on Streamlit Cloud)."""
+    wk = f"{prefix}_{widget_suffix}"
+    lk = f"{prefix}_{logical_suffix}"
+    if wk not in st.session_state:
+        v = st.session_state.get(lk)
+        st.session_state[wk] = "" if v is None else str(v)
+
+
 def reset_doc_dependent_fields(prefix: str):
     """Clear fields that depend on travel document type when the type changes."""
     s = st.session_state
@@ -385,16 +394,11 @@ def render_form(prefix: str, with_singpass: bool = False):
                 s[f"{prefix}_phone"]              = MOCK_MYINFO["phone"]
                 s[f"{prefix}_nric"]               = "T1214619H"
                 s[f"{prefix}_doc_type"]           = "NRIC"
-                # Drop widget keys so inputs re-mount from value= above; setting both value= and
-                # session_state[key] triggers Streamlit's "default value + Session State API" warning.
-                for _wk in (
-                    f"{prefix}_name_input",
-                    f"{prefix}_email_input",
-                    f"{prefix}_phone_input",
-                    f"{prefix}_nric_input",
-                ):
-                    if _wk in st.session_state:
-                        del st.session_state[_wk]
+                # Widgets use session_state[*_input] only (no value=); set both logical + widget keys.
+                s[f"{prefix}_name_input"]         = MOCK_MYINFO["name"]
+                s[f"{prefix}_email_input"]        = MOCK_MYINFO["email"]
+                s[f"{prefix}_phone_input"]        = MOCK_MYINFO["phone"]
+                s[f"{prefix}_nric_input"]         = "T1214619H"
                 s[f"{prefix}_sp_name_autofilled"]  = True
                 s[f"{prefix}_sp_email_autofilled"] = True
                 s[f"{prefix}_sp_phone_autofilled"] = True
@@ -507,9 +511,9 @@ def render_form(prefix: str, with_singpass: bool = False):
             err(errors_all, "period_away")
 
         if vis["nric"]:
+            bind_text_widget(prefix, "nric", "nric_input")
             val = st.text_input(
                 "NRIC *",
-                value=s[f"{prefix}_nric"],
                 placeholder="e.g. S1234567D",
                 max_chars=9,
                 key=f"{prefix}_nric_input",
@@ -519,9 +523,9 @@ def render_form(prefix: str, with_singpass: bool = False):
             err(errors_all, "nric")
 
         if vis["fin"]:
+            bind_text_widget(prefix, "fin", "fin_input")
             val = st.text_input(
                 "FIN *",
-                value=s[f"{prefix}_fin"],
                 placeholder="e.g. F9989472P",
                 max_chars=9,
                 key=f"{prefix}_fin_input",
@@ -531,9 +535,9 @@ def render_form(prefix: str, with_singpass: bool = False):
             err(errors_all, "fin")
 
         if vis["passport_no"]:
+            bind_text_widget(prefix, "passport_no", "passport_no_input")
             val = st.text_input(
                 "Passport No. *",
-                value=s[f"{prefix}_passport_no"],
                 placeholder="Up to 9 alphanumeric characters",
                 max_chars=9,
                 key=f"{prefix}_passport_no_input",
@@ -586,9 +590,9 @@ def render_form(prefix: str, with_singpass: bool = False):
                 unsafe_allow_html=True,
             )
             name_label = "Name *"
+        bind_text_widget(prefix, "name", "name_input")
         val = st.text_input(
             name_label,
-            value=s[f"{prefix}_name"],
             max_chars=66,
             key=f"{prefix}_name_input",
             label_visibility="collapsed" if (with_singpass and s[f"{prefix}_sp_name_autofilled"]) else "visible",
@@ -612,9 +616,9 @@ def render_form(prefix: str, with_singpass: bool = False):
         else:
             email_label_vis = "visible"
 
+        bind_text_widget(prefix, "email", "email_input")
         val = st.text_input(
             "Email Address *",
-            value=s[f"{prefix}_email"],
             placeholder="e.g. user@example.com",
             key=f"{prefix}_email_input",
             label_visibility=email_label_vis,
@@ -635,9 +639,9 @@ def render_form(prefix: str, with_singpass: bool = False):
         else:
             phone_label_vis = "visible"
 
+        bind_text_widget(prefix, "phone", "phone_input")
         val = st.text_input(
             "Phone Number *",
-            value=s[f"{prefix}_phone"],
             placeholder="6–12 digits",
             key=f"{prefix}_phone_input",
             label_visibility=phone_label_vis,
@@ -651,9 +655,9 @@ def render_form(prefix: str, with_singpass: bool = False):
         with st.container(border=True):
             st.markdown("#### Commercial Details")
             if vis["importer_name"]:
+                bind_text_widget(prefix, "importer_name", "importer_name_input")
                 val = st.text_input(
                     "Singapore Importer Name *",
-                    value=s[f"{prefix}_importer_name"],
                     max_chars=50,
                     key=f"{prefix}_importer_name_input",
                 )
@@ -661,9 +665,9 @@ def render_form(prefix: str, with_singpass: bool = False):
                 err(errors_all, "importer_name")
 
             if vis["uen"]:
+                bind_text_widget(prefix, "uen", "uen_input")
                 val = st.text_input(
                     "UEN (optional)",
-                    value=s[f"{prefix}_uen"],
                     max_chars=10,
                     key=f"{prefix}_uen_input",
                 )
