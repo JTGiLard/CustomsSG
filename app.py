@@ -90,9 +90,12 @@ def validate_uen(value: str) -> bool:
 
 def _init_state(prefix: str):
     """Initialise all form keys under `prefix` if not already present."""
+    # Baseline tab: no declaration/document chosen until the user clicks a pill (no default highlight).
+    decl0 = None if prefix == "base" else "Traveller"
+    doc0 = None if prefix == "base" else "NRIC"
     defaults = {
-        f"{prefix}_decl_type": "Traveller",
-        f"{prefix}_doc_type": "NRIC",
+        f"{prefix}_decl_type": decl0,
+        f"{prefix}_doc_type": doc0,
         f"{prefix}_pass_holder": None,          # None = not selected yet
         f"{prefix}_period_away": None,
         f"{prefix}_nric": "",
@@ -126,6 +129,8 @@ def _init_state(prefix: str):
 def get_effective_pass_holder(prefix: str) -> str | None:
     """Return auto-resolved or user-selected pass-holder value."""
     doc = st.session_state[f"{prefix}_doc_type"]
+    if doc is None:
+        return None
     if doc == "FIN":
         return "Yes"
     # NRIC/Passport – return whatever user picked (may be None)
@@ -151,8 +156,8 @@ def visible_fields(prefix: str, with_singpass: bool) -> dict:
     )
 
     return {
-        "decl_type":       True,
-        "doc_type":        True,
+        "decl_type":       (not with_singpass),
+        "doc_type":        (not with_singpass),
         "pass_holder":     show_pass_holder,
         "period_away":     show_period,
         "nric":            doc == "NRIC",
@@ -174,6 +179,14 @@ def visible_fields(prefix: str, with_singpass: bool) -> dict:
 def field_errors(prefix: str, with_singpass: bool) -> dict:
     s = st.session_state
     errors: dict[str, str] = {}
+    if not with_singpass:
+        if s[f"{prefix}_decl_type"] is None:
+            errors["decl_type"] = "Please select a type of declaration"
+        if s[f"{prefix}_doc_type"] is None:
+            errors["doc_type"] = "Please select a travel document type"
+        if s[f"{prefix}_decl_type"] is None or s[f"{prefix}_doc_type"] is None:
+            return errors
+
     vis = visible_fields(prefix, with_singpass)
 
     if vis["nric"] and not validate_nric(s[f"{prefix}_nric"]):
@@ -263,9 +276,32 @@ def progress_bar(step=1, total=5):
 # Pill-style segmented button (simulated with columns)
 # ──────────────────────────────────────────────
 
-def segmented_buttons(label: str, options: list, state_key: str, required: bool = True, on_interaction=None):
-    """Render pill-style button group; updates st.session_state[state_key]."""
-    current = st.session_state.get(state_key, options[0])
+def reset_doc_dependent_fields(prefix: str):
+    """Clear fields that depend on travel document type when the type changes."""
+    s = st.session_state
+    s[f"{prefix}_pass_holder"] = None
+    s[f"{prefix}_nric"] = ""
+    s[f"{prefix}_nric_input"] = ""
+    s[f"{prefix}_fin"] = ""
+    s[f"{prefix}_fin_input"] = ""
+    s[f"{prefix}_passport_no"] = ""
+    s[f"{prefix}_passport_no_input"] = ""
+    s[f"{prefix}_passport_expiry"] = None
+    s[f"{prefix}_nationality"] = ""
+    s[f"{prefix}_passport_expiry_input"] = None
+    s[f"{prefix}_nationality_input"] = ""
+
+
+def segmented_buttons(
+    label: str,
+    options: list,
+    state_key: str,
+    required: bool = True,
+    on_interaction=None,
+    on_value_change=None,
+):
+    """Render pill-style button group; updates st.session_state[state_key]. None = nothing selected (all secondary)."""
+    current = st.session_state.get(state_key)
     st.markdown(
         f"<p style='margin-bottom:4px;font-weight:600;font-size:0.9rem'>"
         f"{label}{'<span style=\"color:#d32f2f\"> *</span>' if required else ''}</p>",
@@ -281,17 +317,19 @@ def segmented_buttons(label: str, options: list, state_key: str, required: bool 
             help=f"Select {opt}",
             type="primary" if selected else "secondary",
         ):
+            old = st.session_state.get(state_key)
+            st.session_state[state_key] = opt
+            if on_value_change and old != opt:
+                on_value_change(opt, old)
             if on_interaction:
                 on_interaction()
-            st.session_state[state_key] = opt
             st.rerun()
-    # Render coloured overlay via CSS hack (visual only)
     st.markdown(
-        f"""
+        """
         <style>
-        div[data-testid="stButton"] button {{
+        div[data-testid="stButton"] button {
             border-radius: 20px !important;
-        }}
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -347,11 +385,16 @@ def render_form(prefix: str, with_singpass: bool = False):
                 s[f"{prefix}_phone"]              = MOCK_MYINFO["phone"]
                 s[f"{prefix}_nric"]               = "T1214619H"
                 s[f"{prefix}_doc_type"]           = "NRIC"
-                # Also set widget keys so text inputs actually refresh.
-                s[f"{prefix}_name_input"]        = MOCK_MYINFO["name"]
-                s[f"{prefix}_email_input"]       = MOCK_MYINFO["email"]
-                s[f"{prefix}_phone_input"]       = MOCK_MYINFO["phone"]
-                s[f"{prefix}_nric_input"]        = "T1214619H"
+                # Drop widget keys so inputs re-mount from value= above; setting both value= and
+                # session_state[key] triggers Streamlit's "default value + Session State API" warning.
+                for _wk in (
+                    f"{prefix}_name_input",
+                    f"{prefix}_email_input",
+                    f"{prefix}_phone_input",
+                    f"{prefix}_nric_input",
+                ):
+                    if _wk in st.session_state:
+                        del st.session_state[_wk]
                 s[f"{prefix}_sp_name_autofilled"]  = True
                 s[f"{prefix}_sp_email_autofilled"] = True
                 s[f"{prefix}_sp_phone_autofilled"] = True
@@ -361,102 +404,73 @@ def render_form(prefix: str, with_singpass: bool = False):
             if s[f"{prefix}_singpass_used"]:
                 st.success("Details retrieved. Please verify before continuing.")
 
-        if s[f"{prefix}_singpass_used"]:
-            name_v = s[f"{prefix}_name"]
-            email_v = s[f"{prefix}_email"]
-            phone_v = s[f"{prefix}_phone"]
-            nric_v = s[f"{prefix}_nric"]
-            st.markdown(
-                f"<div style='background:#f1f8e9;border:1px solid #aed581;"
-                "border-radius:8px;padding:12px 18px;margin-bottom:12px'>"
-                "<p style='margin:0;font-weight:600;font-size:0.85rem'>MyInfo Autofill Summary</p>"
-                "<ul style='margin:6px 0 0;font-size:0.82rem'>"
-                "<li>After clicking `Retrieve details with MyInfo`, it auto-fills:</li>"
-                f"<li>Name: <strong>{name_v}</strong></li>"
-                f"<li>Email Address: <strong>{email_v}</strong></li>"
-                f"<li>Phone Number: <strong>{phone_v}</strong></li>"
-                f"<li>NRIC: <strong>{nric_v}</strong></li>"
-                "<li>Fields autofilled: <strong>4</strong> (Name, Email, Phone Number, NRIC)</li>"
-                "<li>Fields to complete manually: <strong>~1–2 minutes</strong> (verify and fill remaining fields)</li>"
-                "<li>Estimated time saved: <strong>~5–10 seconds</strong> (authentication typically takes only a few seconds)</li>"
-                "</ul>"
-                "<p style='margin:8px 0 0;font-size:0.78rem;color:#555'>"
-                "Please verify your prefilled details before continuing.</p>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
         st.markdown("---")
 
-    # ── Section 1: Declaration & Document ────────────────────────────────
-    with st.container(border=True):
-        st.markdown("#### Declaration & Document Type")
+    # ── Baseline: Declaration & Document (no default pill highlight until click) ──
+    if not with_singpass:
+        with st.container(border=True):
+            st.markdown("#### Declaration & Document Type")
+            segmented_buttons(
+                "Type of Declaration",
+                DECLARATION_TYPES,
+                f"{prefix}_decl_type",
+                on_interaction=record_interaction,
+            )
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-        # Type of Declaration
-        segmented_buttons(
-            "Type of Declaration",
-            DECLARATION_TYPES,
-            f"{prefix}_decl_type",
-            on_interaction=record_interaction,
-        )
-        decl = s[f"{prefix}_decl_type"]
+            def _on_doc_type_change(new, old):
+                if old is not None and new != old:
+                    reset_doc_dependent_fields(prefix)
 
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+            segmented_buttons(
+                "Travel Document Type",
+                DOC_TYPES,
+                f"{prefix}_doc_type",
+                on_interaction=record_interaction,
+                on_value_change=_on_doc_type_change,
+            )
 
-        # Travel Document Type
-        prev_doc = s[f"{prefix}_doc_type"]
-        segmented_buttons(
-            "Travel Document Type",
-            DOC_TYPES,
-            f"{prefix}_doc_type",
-            on_interaction=record_interaction,
-        )
-        doc = s[f"{prefix}_doc_type"]
+            decl = s[f"{prefix}_decl_type"]
+            doc = s[f"{prefix}_doc_type"]
+            if decl == "Traveller":
+                if doc in ("NRIC", "FIN"):
+                    default_ph = "No" if doc == "NRIC" else "Yes"
+                    s[f"{prefix}_pass_holder"] = default_ph
 
-        # If doc type changed, reset dependent fields
-        if doc != prev_doc:
-            s[f"{prefix}_pass_holder"]     = None
-            s[f"{prefix}_nric"]            = ""
-            s[f"{prefix}_nric_input"]     = ""
-            s[f"{prefix}_fin"]             = ""
-            s[f"{prefix}_fin_input"]      = ""
-            s[f"{prefix}_passport_no"]     = ""
-            s[f"{prefix}_passport_no_input"] = ""
-            s[f"{prefix}_passport_expiry"] = None
-            s[f"{prefix}_nationality"]     = ""
-            # Widget keys for date/select are stable in Streamlit; clear what we store.
-            s[f"{prefix}_passport_expiry_input"] = None
-            s[f"{prefix}_nationality_input"] = ""
+                    st.markdown(
+                        "<p style='font-weight:600;font-size:0.9rem'>Are you a Singapore pass-holder? "
+                        "<span style='color:#d32f2f'>*</span></p>",
+                        unsafe_allow_html=True,
+                    )
+                    # Read-only (not editable); styled like active radios — Streamlit's disabled=True grays the control.
+                    yes_on = default_ph == "Yes"
+                    no_on = default_ph == "No"
+                    accent = "#0055a5"
+                    ring_sel = f"border:2px solid {accent};background:#fff;box-shadow:inset 0 0 0 5px {accent}"
+                    idle = "border:2px solid #5c5e61;background:#fff;box-shadow:none"
+                    st.markdown(
+                        f"""
+                        <div role="radiogroup" aria-label="Are you a Singapore pass-holder?"
+                             style="display:flex;gap:32px;align-items:center;padding:6px 2px 10px;
+                             font-size:1rem;color:#31333F;user-select:none">
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <span aria-hidden="true" style="display:inline-block;width:20px;height:20px;
+                                    border-radius:50%;flex-shrink:0;{ring_sel if yes_on else idle}"></span>
+                                <span style="font-weight:{'600' if yes_on else '400'};color:{accent if yes_on else '#31333F'}">Yes</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <span aria-hidden="true" style="display:inline-block;width:20px;height:20px;
+                                    border-radius:50%;flex-shrink:0;{ring_sel if no_on else idle}"></span>
+                                <span style="font-weight:{'600' if no_on else '400'};color:{accent if no_on else '#31333F'}">No</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
-        # ── Pass-holder logic ─────────────────────────────────────────────
-        if decl == "Traveller":
-            # Baseline-only: show a non-editable question for NRIC/FIN.
-            # Improved MyInfo tab: hide this question entirely.
-            if (not with_singpass) and doc in ("NRIC", "FIN"):
-                default_ph = "No" if doc == "NRIC" else "Yes"
-                s[f"{prefix}_pass_holder"] = default_ph
-
-                st.markdown(
-                    "<p style='font-weight:600;font-size:0.9rem'>Are you a Singapore pass-holder? "
-                    "<span style='color:#d32f2f'>*</span></p>",
-                    unsafe_allow_html=True,
-                )
-                st.radio(
-                    "Are you a Singapore pass-holder?",
-                    options=["Yes", "No"],
-                    index=0 if default_ph == "Yes" else 1,
-                    disabled=True,
-                    horizontal=True,
-                    label_visibility="collapsed",
-                    key=f"{prefix}_pass_holder_radio_{doc.lower()}",
-                )
-            elif doc == "Passport":
-                # Static guidance only; no question/radio shown.
-                st.warning(
-                    "If you are a holder of a work permit, employment pass, student pass, "
-                    "dependent pass or long-term pass issued by the Singapore Government, "
-                    "kindly input your FIN instead of passport number."
-                )
+        errs_decl_doc = field_errors(prefix, with_singpass)
+        err(errs_decl_doc, "decl_type")
+        err(errs_decl_doc, "doc_type")
 
     # ── Section 2: Document Details ───────────────────────────────────────
     vis = visible_fields(prefix, with_singpass)
@@ -464,6 +478,14 @@ def render_form(prefix: str, with_singpass: bool = False):
 
     with st.container(border=True):
         st.markdown("#### Document Details")
+
+        doc = s[f"{prefix}_doc_type"]
+        if doc == "Passport":
+            st.warning(
+                "If you are a holder of a work permit, employment pass, student pass, "
+                "dependent pass or long-term pass issued by the Singapore Government, "
+                "kindly input your FIN instead of passport number."
+            )
 
         if vis["period_away"]:
             st.markdown(
