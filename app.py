@@ -297,6 +297,14 @@ def ensure_myinfo_text_widget(prefix: str, field: str, stamp: int):
         s[wk] = "" if v is None else str(v)
 
 
+def stabilize_improved_form_state(prefix: str):
+    """Improved prototype is always Traveller + NRIC so NRIC/personal widgets always mount."""
+    s = st.session_state
+    if s.get(f"{prefix}_decl_type") is None:
+        s[f"{prefix}_decl_type"] = "Traveller"
+    s[f"{prefix}_doc_type"] = "NRIC"
+
+
 def repair_myinfo_widget_keys(prefix: str):
     """
     Streamlit deletes session_state for a widget if that widget is not executed in a run
@@ -399,6 +407,7 @@ def render_form(prefix: str, with_singpass: bool = False):
     _init_state(prefix)
     s = st.session_state
     if with_singpass:
+        stabilize_improved_form_state(prefix)
         repair_myinfo_widget_keys(prefix)
 
     def record_interaction():
@@ -439,11 +448,8 @@ def render_form(prefix: str, with_singpass: bool = False):
                 s[f"{prefix}_phone"] = MOCK_MYINFO["phone"]
                 s[f"{prefix}_nric"] = "T1214619H"
                 s[f"{prefix}_doc_type"] = "NRIC"
-                # Cloud: keyed text_input reads session_state only — pre-seed widget keys (no value=).
-                s[f"{prefix}_nric_mi{mis}"] = "T1214619H"
-                s[f"{prefix}_name_mi{mis}"] = MOCK_MYINFO["name"]
-                s[f"{prefix}_email_mi{mis}"] = MOCK_MYINFO["email"]
-                s[f"{prefix}_phone_mi{mis}"] = MOCK_MYINFO["phone"]
+                # Do not set *_mi{mis} keys here: this run ends before text_input executes, and
+                # Streamlit drops session_state for widget keys that never mount in that run.
                 s[f"{prefix}_sp_name_autofilled"] = True
                 s[f"{prefix}_sp_email_autofilled"] = True
                 s[f"{prefix}_sp_phone_autofilled"] = True
@@ -523,6 +529,8 @@ def render_form(prefix: str, with_singpass: bool = False):
 
     # ── Section 2: Document Details ───────────────────────────────────────
     vis = visible_fields(prefix, with_singpass)
+    if with_singpass:
+        repair_myinfo_widget_keys(prefix)
     errors_all = field_errors(prefix, with_singpass)  # compute once for summary; inline shown per field
 
     with st.container(border=True):
