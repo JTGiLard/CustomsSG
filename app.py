@@ -287,6 +287,16 @@ def bind_text_widget(prefix: str, logical_suffix: str, widget_suffix: str):
         st.session_state[wk] = "" if v is None else str(v)
 
 
+def ensure_myinfo_text_widget(prefix: str, field: str, stamp: int):
+    """Bind `{prefix}_{field}_mi{stamp}` from logical `{prefix}_{field}` if unset (MyInfo pre-seeds before rerun)."""
+    s = st.session_state
+    wk = f"{prefix}_{field}_mi{stamp}"
+    lk = f"{prefix}_{field}"
+    if wk not in s:
+        v = s.get(lk)
+        s[wk] = "" if v is None else str(v)
+
+
 def reset_doc_dependent_fields(prefix: str):
     """Clear fields that depend on travel document type when the type changes."""
     s = st.session_state
@@ -391,13 +401,19 @@ def render_form(prefix: str, with_singpass: bool = False):
         with col_sp:
             if st.button("🔐 Retrieve details with MyInfo", use_container_width=True, type="primary"):
                 record_interaction()
-                s[f"{prefix}_name"]               = MOCK_MYINFO["name"]
-                s[f"{prefix}_email"]              = MOCK_MYINFO["email"]
-                s[f"{prefix}_phone"]              = MOCK_MYINFO["phone"]
-                s[f"{prefix}_nric"]               = "T1214619H"
-                s[f"{prefix}_doc_type"]           = "NRIC"
-                s[f"{prefix}_myinfo_stamp"]       = s.get(f"{prefix}_myinfo_stamp", 0) + 1
-                s[f"{prefix}_sp_name_autofilled"]  = True
+                mis = s.get(f"{prefix}_myinfo_stamp", 0) + 1
+                s[f"{prefix}_myinfo_stamp"] = mis
+                s[f"{prefix}_name"] = MOCK_MYINFO["name"]
+                s[f"{prefix}_email"] = MOCK_MYINFO["email"]
+                s[f"{prefix}_phone"] = MOCK_MYINFO["phone"]
+                s[f"{prefix}_nric"] = "T1214619H"
+                s[f"{prefix}_doc_type"] = "NRIC"
+                # Cloud: keyed text_input reads session_state only — pre-seed widget keys (no value=).
+                s[f"{prefix}_nric_mi{mis}"] = "T1214619H"
+                s[f"{prefix}_name_mi{mis}"] = MOCK_MYINFO["name"]
+                s[f"{prefix}_email_mi{mis}"] = MOCK_MYINFO["email"]
+                s[f"{prefix}_phone_mi{mis}"] = MOCK_MYINFO["phone"]
+                s[f"{prefix}_sp_name_autofilled"] = True
                 s[f"{prefix}_sp_email_autofilled"] = True
                 s[f"{prefix}_sp_phone_autofilled"] = True
                 s[f"{prefix}_singpass_used"]       = True
@@ -511,9 +527,9 @@ def render_form(prefix: str, with_singpass: bool = False):
         if vis["nric"]:
             if with_singpass:
                 _mis = s.get(f"{prefix}_myinfo_stamp", 0)
+                ensure_myinfo_text_widget(prefix, "nric", _mis)
                 val = st.text_input(
                     "NRIC *",
-                    value=s[f"{prefix}_nric"],
                     placeholder="e.g. S1234567D",
                     max_chars=9,
                     key=f"{prefix}_nric_mi{_mis}",
@@ -601,9 +617,9 @@ def render_form(prefix: str, with_singpass: bool = False):
             name_label = "Name *"
         _mis = s.get(f"{prefix}_myinfo_stamp", 0)
         if with_singpass:
+            ensure_myinfo_text_widget(prefix, "name", _mis)
             val = st.text_input(
                 name_label,
-                value=s[f"{prefix}_name"],
                 max_chars=66,
                 key=f"{prefix}_name_mi{_mis}",
                 label_visibility="collapsed" if (with_singpass and s[f"{prefix}_sp_name_autofilled"]) else "visible",
@@ -637,9 +653,9 @@ def render_form(prefix: str, with_singpass: bool = False):
             email_label_vis = "visible"
 
         if with_singpass:
+            ensure_myinfo_text_widget(prefix, "email", _mis)
             val = st.text_input(
                 "Email Address *",
-                value=s[f"{prefix}_email"],
                 placeholder="e.g. user@example.com",
                 key=f"{prefix}_email_mi{_mis}",
                 label_visibility=email_label_vis,
@@ -670,9 +686,9 @@ def render_form(prefix: str, with_singpass: bool = False):
             phone_label_vis = "visible"
 
         if with_singpass:
+            ensure_myinfo_text_widget(prefix, "phone", _mis)
             val = st.text_input(
                 "Phone Number *",
-                value=s[f"{prefix}_phone"],
                 placeholder="6–12 digits",
                 key=f"{prefix}_phone_mi{_mis}",
                 label_visibility=phone_label_vis,
