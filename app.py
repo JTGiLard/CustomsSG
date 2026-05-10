@@ -2,6 +2,8 @@
 Customs@SG – Traveller Portal
 Personal Information Page Prototype
 
+Demo login (session_state): username admin / password admin123
+
 Two variants (radio — not tabs, so widget state survives on Streamlit Cloud):
   1. Baseline Form
   2. Improved Form with MyInfo Autofill
@@ -41,6 +43,11 @@ MOCK_MYINFO = {
     "email": "jontaygc@hotmail.com",
     "phone": "91257076",
 }
+
+# Demo credentials only — use a real identity provider in production.
+_LOGIN_DEMO_USER = "admin"
+_LOGIN_DEMO_PASSWORD = "admin123"
+_AUTH_SESSION_KEY = "customs_sg_authenticated"
 
 # ──────────────────────────────────────────────
 # Validation helpers
@@ -807,6 +814,80 @@ def render_form(prefix: str, with_singpass: bool = False):
     if next_disabled:
         st.caption("Complete all required fields to enable Next.")
 
+
+def render_login_screen():
+    """Centered login card — Singapore government–style professional layout."""
+    st.markdown(
+        """
+        <style>
+            .login-page-spacer { min-height: 8vh; }
+            .login-brand {
+                color: #0055a5;
+                font-size: 1.5rem;
+                font-weight: 700;
+                letter-spacing: -0.02em;
+                margin: 0 0 6px 0;
+                line-height: 1.2;
+            }
+            .login-sub {
+                color: #4b5563;
+                font-size: 0.9rem;
+                margin: 0 0 4px 0;
+                line-height: 1.45;
+            }
+            .login-crest-line {
+                height: 3px;
+                width: 48px;
+                background: linear-gradient(90deg, #0055a5 0%, #1976d2 100%);
+                border-radius: 2px;
+                margin-bottom: 18px;
+            }
+            @media (max-width: 480px) {
+                .login-brand { font-size: 1.35rem; }
+            }
+        </style>
+        <div class="login-page-spacer"></div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _, center, _ = st.columns([1, 2.2, 1])
+    with center:
+        with st.container(border=True):
+            st.markdown(
+                '<div class="login-crest-line"></div>'
+                '<p class="login-brand">Customs@SG</p>'
+                '<p class="login-sub">Traveller Declaration — prototype access</p>'
+                '<p style="font-size:0.82rem;color:#6b7280;margin:0 0 16px 0;">Singapore Customs (demo sign-in)</p>',
+                unsafe_allow_html=True,
+            )
+            st.text_input(
+                "Username",
+                key="_login_username",
+                placeholder="Enter username",
+            )
+            st.text_input(
+                "Password",
+                type="password",
+                key="_login_password",
+                placeholder="Enter password",
+            )
+            if st.button("Sign in", type="primary", use_container_width=True, key="_login_submit"):
+                user = (st.session_state.get("_login_username") or "").strip()
+                pw = st.session_state.get("_login_password") or ""
+                if user == _LOGIN_DEMO_USER and pw == _LOGIN_DEMO_PASSWORD:
+                    st.session_state[_AUTH_SESSION_KEY] = True
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password")
+            st.markdown(
+                '<p style="font-size:0.75rem;color:#6b7280;text-align:center;margin:16px 0 0 0;line-height:1.4;">'
+                "Unauthorised access is prohibited. This is a prototype environment."
+                "</p>",
+                unsafe_allow_html=True,
+            )
+
+
 # ──────────────────────────────────────────────
 # Page config & layout
 # ──────────────────────────────────────────────
@@ -817,7 +898,23 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Global CSS
+if _AUTH_SESSION_KEY not in st.session_state:
+    st.session_state[_AUTH_SESSION_KEY] = False
+
+if not st.session_state[_AUTH_SESSION_KEY]:
+    st.markdown(
+        """
+        <style>
+            .block-container { padding-top: 1rem; max-width: 720px; }
+            footer { visibility: hidden; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    render_login_screen()
+    st.stop()
+
+# Global CSS (prototype, after authentication)
 st.markdown(
     """
     <style>
@@ -838,6 +935,12 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+with st.sidebar:
+    st.caption("Signed in")
+    if st.button("Sign out", key="_auth_sign_out"):
+        st.session_state[_AUTH_SESSION_KEY] = False
+        st.rerun()
 
 # ── Page Header ────────────────────────────────────────────────────────────
 st.markdown(
